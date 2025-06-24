@@ -1,8 +1,10 @@
 import logging
 from typing import Union
 import piexif
+from piexif import InvalidImageDataError
 import argparse
 from pathlib import Path
+import shutil
 from PIL import Image
 import imagehash
 import json
@@ -55,37 +57,45 @@ def _get_all_extensions(folder_path: Path):
             extensions.add(file_path.suffix)
     return extensions
 
-def check_missing_extensions(media_path: Path):
+def check_missing_extensions(media_folder: Path):
     """
     Check if there are any missing expected file extensions in the current directory.
     
     Args:
         media_path (Path): The path to the media folder containing photos.
-    Raises: 
+    Raises:
+        FileNotFoundError: If the specified media folder does not exist or is not a directory. 
         ValueError: If any expected file extensions are missing in the media path.
     """
-    current_extensions = _get_all_extensions(media_path)
+    
+    if not media_folder.is_dir():
+        raise FileNotFoundError(f"The specified media folder '{media_folder}' does not exist or is not a directory.")
+    
+    current_extensions = _get_all_extensions(media_folder)
     if not current_extensions.issubset(ALL_EXPECTED_EXTENSIONS):
         missing_extensions = current_extensions.difference(ALL_EXPECTED_EXTENSIONS)
-        raise ValueError(f"The following file extensions are not expected in the media path '{media_path}': {missing_extensions}. "
+        raise ValueError(f"The following file extensions are not expected in the media path '{media_folder}': {missing_extensions}. "
                          f"Expected extensions are: {ALL_EXPECTED_EXTENSIONS}. ")
 
-def generate_media_infos(media_path: Path, output_file: Path):
+def generate_media_infos(media_folder: Path, media_info_file: Path):
     """
     Generate media information from the specified media path and save it to a JSON file.
     
     Args:
         media_path (Path): The path to the media folder containing photos.
-        output_file (Path): The path to the output JSON file.
+        media_info_file (Path): The path to JSON file to be created.
     Raises:
         ValueError: If the specified media path does not exist or is not a directory.
     """
-    if not media_path.is_dir():
-        raise ValueError(f"The specified media path '{media_path}' does not exist or is not a directory.")
+    if not media_folder.is_dir():
+        raise ValueError(f"The specified media path '{media_folder}' does not exist or is not a directory.")
+    
+    # create missing folders in media_info_file path
+    media_info_file.parent.mkdir(parents=True, exist_ok=True)
     
     export_info = dict()
     
-    for file_path in media_path.rglob("*"):
+    for file_path in media_folder.rglob("*"):
         if not file_path.is_file():
             continue
         
@@ -122,19 +132,30 @@ def generate_media_infos(media_path: Path, output_file: Path):
         }
     
     # Save the export_info dictionary to a JSON file
-    with open(output_file, "w", encoding="utf-8") as json_file:
+    with open(media_info_file, "w", encoding="utf-8") as json_file:
         json.dump(export_info, json_file, indent=4, ensure_ascii=False)
-    logger.info(f"Export information saved to {output_file}")
+    logger.info(f"Export information saved to {media_info_file}")
 
 def find_missing_media(src_media_info: Path, dst_media_info: Path, output_file: Path):
     """
     Find missing media files in the destination folder based on the source media info file.
     
     Args:
-        src_media_info (Path): The path to the source media info JSON file.
-        dst_media_info (Path): The path to the destination media info JSON file.
-        output_file (Path): The path to the output JSON file for missing media.
+        src_media_info (Path): The path to the media info file containing source media information.
+        dst_media_info (Path): The path to the media info file containing destination media information.
+        output_file (Path): The path to the file that will contain the list of missing media.
+    Raises:
+        FileNotFoundError: If the specified source or destination media info file does not exist or is not a file.
+        ValueError: If there are duplicate media names in the source data.
     """
+    
+    if not src_media_info.is_file():
+        raise FileNotFoundError(f"The specified source media info file '{src_media_info}' does not exist or is not a file.")
+    if not dst_media_info.is_file():
+        raise FileNotFoundError(f"The specified destination media info file '{dst_media_info}' does not exist or is not a file.")
+    
+    # create missing folders in output_file path
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     
     with src_media_info.open(mode='r', encoding='utf-8') as src_file:
         src_data = json.load(src_file)
@@ -180,8 +201,8 @@ def find_missing_media(src_media_info: Path, dst_media_info: Path, output_file: 
             else:
                 logger.info(f"Media {name} found in both source and destination with matching hashes.")
                 
-    with output_file.open(mode="w", encoding="utf-8") as output_json:
-        json.dump(missing_media, output_json, indent=4, ensure_ascii=False)
+    with output_file.open(mode="w", encoding="utf-8") as media_info_file_json:
+        json.dump(missing_media, media_info_file_json, indent=4, ensure_ascii=False)
     
     logger.info(f"Missing media information saved to {output_file}")
 
@@ -214,8 +235,9 @@ def _get_google_metadata_file(media_path: Path) -> Union[Path, None]:
     
     return metadata_file
 
-def _check_geodata(supplemental_metadata: dict, media: Path) -> None:
+def _check_geodata(supplemental_metadata: dict) -> None:
     
+    file_name = supplemental_metadata['title']
     latitude = supplemental_metadata['geoData']['latitude']
     longitude = supplemental_metadata['geoData']['longitude']
     altitude = supplemental_metadata['geoData']['altitude']
@@ -224,7 +246,7 @@ def _check_geodata(supplemental_metadata: dict, media: Path) -> None:
     
     if latitude != longitude != altitude != latitude_span != longitude_span != 0.0:
         #TODO: if you find geodata think about putting it in the image metadata
-        raise ValueError(f"Geodata for {media} is available: Latitude: {latitude}, Longitude: {longitude}, Altitude: {altitude}, "
+        raise ValueError(f"Geodata for {file_name} is available: Latitude: {latitude}, Longitude: {longitude}, Altitude: {altitude}, "
                     f"Latitude Span: {latitude_span}, Longitude Span: {longitude_span}.")
 
 def _get_datetime_from_google_metadata(supplemental_metadata: dict) -> datetime.datetime:
@@ -234,36 +256,95 @@ def _get_datetime_from_google_metadata(supplemental_metadata: dict) -> datetime.
     # convert to Europe/Rome timezone
     return date_time.astimezone(tz=ZoneInfo('Europe/Rome'))
 
-def check_metadata(media_info_file: Path):
+def _check_img_datetime_exists(img_path: Path) -> bool:
+    """
+    Check if the metadata file exists for the given media file.
+    
+    Args:
+        media_path (Path): The path to the media file.
+    
+    Returns:
+        bool: True if the media has date and time metadata, False otherwise.
+    """
+    if not img_path.is_file():
+        raise FileNotFoundError(f"The specified media path '{img_path}' does not exist or is not a file.")
+    
+    with Image.open(img_path, mode='r') as img:
+        exif_bytes = img.info.get('exif', b"")
+        exif_data = piexif.load(exif_bytes) if exif_bytes else {"Exif": {}}
+
+        # Get shooting date (Exif tag 36867 corresponds to DateTimeOriginal)
+        date_time_original = exif_data.get("Exif", {}).get(36867)
+        if not date_time_original:
+            logger.info(f"No DateTimeOriginal found in metadata for image {img_path}.")
+            return False
+    return True
+
+def _set_img_datetime(img_path: Path, datetime_taken: datetime.datetime):
+    with Image.open(img_path) as img:
+        exif_bytes = img.info.get("exif", b"")
+        exif_data = piexif.load(exif_bytes) if exif_bytes else {"Exif": {}}
+        new_date_str = datetime_taken.strftime("%Y:%m:%d %H:%M:%S")
+        exif_data["Exif"][36867] = new_date_str
+        try:
+            exif_bytes = piexif.dump(exif_data)
+        except InvalidImageDataError as e:
+            logger.error(f"Failed to dump EXIF data for {img_path}: {e}")
+            return
+        # Save image with updated metadata
+        img.save(img_path, format=img.format, exif=exif_bytes)
+        logger.info(f"Updated shooting date for: {img_path} to {new_date_str}")
+    
+
+def copy_and_set_google_metadata(media_info_file: Path, output: Path):
     """
     Check metadata of the media files listed in the provided JSON file.
     
     Args:
         media_info_file (Path): The path to the media info JSON file.
     """
+    if not media_info_file.is_file():
+        raise FileNotFoundError(f"The specified media info file '{media_info_file}' does not exist or is not a file.")
+    
+    # create missing folders in output path
+    output.mkdir(parents=True, exist_ok=True)
+    
     with media_info_file.open(mode='r', encoding='utf-8') as media_file:
         media_data = json.load(media_file)
         for media_name, media_data in media_data.items():
-            with Image.open(Path(media_data['path']), mode='r') as img:
-                exif_bytes = img.info.get('exif', b"")
-                exif_data = piexif.load(exif_bytes) if exif_bytes else {"Exif": {}}
+            # copy image to output folder preserving metadata
+            copied_media_path: Path = output.joinpath(media_name)
+            shutil.copy2(Path(media_data['path']), copied_media_path)
+            if not _check_img_datetime_exists(copied_media_path):                
+                metadata_file = _get_google_metadata_file(Path(media_data['path']))
+                
+                if not metadata_file:
+                    logger.warning(f"Supplemental metadata file does not exist for {media_name}.")
+                    continue
+                with metadata_file.open(mode='r', encoding='utf-8') as meta_file:
+                    supplemental_metadata = json.load(meta_file)
+                # check geodata
+                _check_geodata(supplemental_metadata)
+                datetime_taken = _get_datetime_from_google_metadata(supplemental_metadata)
+                # set datetime metadata to the copied image
+                _set_img_datetime(copied_media_path, datetime_taken)
 
-                # Get shooting date (Exif tag 36867 corresponds to DateTimeOriginal)
-                date_time_original = exif_data.get("Exif", {}).get(36867)
-                if not date_time_original:
-                    logger.warning(f"No DateTimeOriginal found in metadata for {media_name}.")
-                    
-                    metadata_file = _get_google_metadata_file(Path(media_data['path']))
-                    
-                    if not metadata_file:
-                        logger.warning(f"Supplemental metadata file does not exist for {media_name}.")
-                        continue
-                    with metadata_file.open(mode='r', encoding='utf-8') as meta_file:
-                        supplemental_metadata = json.load(meta_file)
-                    # check geodata
-                    _check_geodata(supplemental_metadata, Path(media_data['path']))
-                    datetime_taken = _get_datetime_from_google_metadata(supplemental_metadata)
-                    logger.info(f"Using Google metadata for {media_name}: DateTimeOriginal: {datetime_taken.isoformat()}")
+def check_img_missing_datetime(media_path: Path):
+    """
+    Check if the media files have missing datetime metadata.
+    
+    Args:
+        media_path (Path): The path to the media folder containing photos.
+    Raises:
+        FileNotFoundError: If the specified media path does not exist or is not a directory.
+    """
+    if not media_path.is_dir():
+        raise FileNotFoundError(f"The specified media path '{media_path}' does not exist or is not a directory.")
+    
+    for file_path in media_path.rglob("*"):
+        if file_path.is_file() and file_path.suffix in IMAGE_EXTENSIONS:
+            if not _check_img_datetime_exists(file_path):
+                logger.error(f"Missing datetime metadata for image: {file_path}")
 
 def main():
     """ Main function to run the gphoto_parser module."""
@@ -273,61 +354,54 @@ def main():
     parser.add_argument(
         "-g",
         "--generate-media-infos",
+        nargs=2,
         type=Path,
-        help="Media path containing photos, parse all files in the folder recursively "
-             "then generate a JSON file with the media information.",
+        metavar=("MEDIA_PATH", "OUTPUT_MEDIA_INFO_FILE"),
+        help="Generate media information from the specified media path and save it to a JSON file.",
         required=False
     )
     parser.add_argument(
         "-f",
         "--find-missing",
-        nargs=2,
+        nargs=3,
         type=Path,
-        help="Find missing media in destination folder. "
-             "Provide the source media info file and the destination media info file. "
-             "generate a JSON file with the missing media names and paths.",
-        metavar=("SOURCE_MEDIA_INFO", "DESTINATION_MEDIA_INFO"),
+        metavar=("SOURCE_MEDIA_INFO_FILE", "DESTINATION_MEDIA_INFO_FILE", "OUTPUT_FILE"),
+        help="Find missing media between source and destination media info files and save the results to a JSON file.",
         required=False
     )
     parser.add_argument(
         "-c",
-        "--check-metadata",
+        "--copy-with-metadata",
+        nargs=2,
         type=Path,
-        help="Check metadata of the media files listed in the provided JSON file.",
+        metavar=("MEDIA_INFO_FILE", "OUTPUT_FOLDER"),
+        help="Copy media files to a new location and update their metadata. ",
         required=False
     )
     parser.add_argument(
-        "-o",
-        "--output",
+        "--check-missing-datetime",
         type=Path,
-        default=Path(__file__).parent.joinpath("media_infos.json"),
-        help="Output file to save the media information in JSON format.",
-        required=False,
+        metavar="MEDIA_PATH",
+        help="Check if the media files have missing datetime metadata.",
+        required=False
     )
-    args = parser.parse_args()
+        
     
-    if not args.output.is_file():
-        # Create the output directory structure if it does not exist
-        args.output.parent.mkdir(parents=True, exist_ok=True)
+    args = parser.parse_args()
     
     if args.generate_media_infos:
         # Check if the media path is valid and contains expected file extensions
-        check_missing_extensions(args.generate_media_infos)
-        
-        # Generate media information and save it to the specified output file
-        generate_media_infos(args.generate_media_infos, args.output)
+        check_missing_extensions(args.generate_media_infos[0])
+        # Generate media information and save it to the specified media_info_file file
+        generate_media_infos(args.generate_media_infos[0], args.generate_media_infos[1])
     elif args.find_missing:
-        src = args.find_missing[0]
-        dst = args.find_missing[1]
-        if not src.is_file() or not dst.is_file():
-            raise FileNotFoundError("Both source and destination media info files must exist.")
-        # Find missing media files and save the results to the specified output file
-        find_missing_media(src, dst, args.output)
-    elif args.check_metadata:
-        if not args.check_metadata.is_file():
-            raise FileNotFoundError(f"The specified media info file '{args.check_metadata}' does not exist.")
-        # Placeholder for metadata checking logic
-        check_metadata(args.check_metadata)
+        # Find missing media files and save the results to the specified media_info_file file
+        find_missing_media(args.find_missing[0], args.find_missing[1], args.find_missing[2])
+    elif args.copy_with_metadata:
+        copy_and_set_google_metadata(args.copy_with_metadata[0], args.copy_with_metadata[1])
+    elif args.check_missing_datetime:
+        # Check if the media files have missing datetime metadata
+        check_img_missing_datetime(args.check_missing_datetime)
     else:
         parser.print_help()
         logger.error("No valid arguments provided. Use -h for help.")

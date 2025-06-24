@@ -315,6 +315,8 @@ def main():
         pattern = re.compile(r"IMG_(\d{8})_(\d{6})_.*$")
     elif args.type == "video" and args.source == "telegram":
         pattern = re.compile(r"VID_(\d{8})_(\d{6})_.*$")
+    else:
+        raise ValueError("Invalid combination of type and source.")
 
     for file in folder_path.iterdir():
         if not file.is_file():
