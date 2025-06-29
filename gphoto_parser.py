@@ -1,4 +1,5 @@
 import logging
+import enum
 from typing import Union
 import piexif
 from piexif import InvalidImageDataError
@@ -11,11 +12,17 @@ import json
 import re
 import datetime
 from zoneinfo import ZoneInfo
+from videohash import VideoHash
 
 IMAGE_EXTENSIONS = {'.JPG', '.jpeg', '.PNG', '.jpg', '.gif', '.png', '.JPEG'}
 VIDEO_EXTENSIONS = {'.MP4', '.avi', '.mp4', '.3gp'}
 OTHER_EXTENSIONS = {'.json', '.MP', '.html'}
 ALL_EXPECTED_EXTENSIONS = IMAGE_EXTENSIONS.union(VIDEO_EXTENSIONS).union(OTHER_EXTENSIONS)
+
+class MediaType(enum.Enum):
+    """Enum to represent the type of media."""
+    IMAGE = 'image'
+    VIDEO = 'video'
 
 default_logging_level = logging.INFO
 
@@ -77,13 +84,14 @@ def check_missing_extensions(media_folder: Path):
         raise ValueError(f"The following file extensions are not expected in the media path '{media_folder}': {missing_extensions}. "
                          f"Expected extensions are: {ALL_EXPECTED_EXTENSIONS}. ")
 
-def generate_media_infos(media_folder: Path, media_info_file: Path):
+def generate_media_infos(media_folder: Path, media_info_file: Path, media_type: MediaType):
     """
     Generate media information from the specified media path and save it to a JSON file.
     
     Args:
         media_path (Path): The path to the media folder containing photos.
         media_info_file (Path): The path to JSON file to be created.
+        media_type (MediaType): The type of media to process (image or video).
     Raises:
         ValueError: If the specified media path does not exist or is not a directory.
     """
@@ -110,8 +118,15 @@ def generate_media_infos(media_folder: Path, media_info_file: Path):
             continue
         
         # Check if the file is an image based on its extension
-        if file_path.suffix not in IMAGE_EXTENSIONS:
-            logger.info(f"Skipping non-image file: {file_path.name}")
+        if media_type == MediaType.IMAGE:
+            extensions_set = IMAGE_EXTENSIONS
+        elif media_type == MediaType.VIDEO:
+            extensions_set = VIDEO_EXTENSIONS
+        else:
+            raise ValueError(f"Unsupported media type: {media_type}. Supported types are: {list(MediaType)}")
+        
+        if file_path.suffix not in extensions_set:
+            logger.info(f"Skipping non-{media_type.value} file: {file_path.name}")
             continue
         
         # ensure no duplicate files are processed
@@ -119,17 +134,28 @@ def generate_media_infos(media_folder: Path, media_info_file: Path):
             logger.warning(f"Duplicate file found: {file_path.name} first found at {export_info[file_path.name]}")
             continue
         
-        # Store the file info in the export_info dictionary        
-        export_info[file_path.name] = {
-            'path': str(file_path),
-            'hashes': {
-                'average': str(imagehash.average_hash(Image.open(file_path))),
-                'perceptual': str(imagehash.phash(Image.open(file_path))),
-                'difference': str(imagehash.dhash(Image.open(file_path))),
-                'wavelet': str(imagehash.whash(Image.open(file_path))),
-                'colorhash': str(imagehash.colorhash(Image.open(file_path))),
+        # Store the file info in the export_info dictionary
+        if media_type == MediaType.IMAGE:        
+            export_info[file_path.name] = {
+                'path': str(file_path),
+                'hashes': {
+                    'average': str(imagehash.average_hash(Image.open(file_path))),
+                    'perceptual': str(imagehash.phash(Image.open(file_path))),
+                    'difference': str(imagehash.dhash(Image.open(file_path))),
+                    'wavelet': str(imagehash.whash(Image.open(file_path))),
+                    'colorhash': str(imagehash.colorhash(Image.open(file_path))),
+                }
             }
-        }
+        elif media_type == MediaType.VIDEO:
+            # For videos, we can use a simple hash or a placeholder as video hashing is more complex
+            export_info[file_path.name] = {
+                'path': str(file_path),
+                'hashes': {
+                    'video_hash': VideoHash(path=str(file_path)).hash_hex
+                }
+            }
+        else:
+            raise ValueError(f"Unsupported media type: {media_type}. Supported types are: {list(MediaType)}")
     
     # Save the export_info dictionary to a JSON file
     with open(media_info_file, "w", encoding="utf-8") as json_file:
@@ -361,6 +387,15 @@ def main():
         required=False
     )
     parser.add_argument(
+        "-t",
+        "--type",
+        choices=[media_type.value for media_type in MediaType],
+        metavar="MEDIA_TYPE",
+        default='image',
+        help="Specify the type of media to process. Default is 'image'.",
+        required=False,
+    )
+    parser.add_argument(
         "-f",
         "--find-missing",
         nargs=3,
@@ -393,7 +428,7 @@ def main():
         # Check if the media path is valid and contains expected file extensions
         check_missing_extensions(args.generate_media_infos[0])
         # Generate media information and save it to the specified media_info_file file
-        generate_media_infos(args.generate_media_infos[0], args.generate_media_infos[1])
+        generate_media_infos(args.generate_media_infos[0], args.generate_media_infos[1], MediaType(args.type))
     elif args.find_missing:
         # Find missing media files and save the results to the specified media_info_file file
         find_missing_media(args.find_missing[0], args.find_missing[1], args.find_missing[2])
