@@ -12,11 +12,11 @@ import json
 import re
 import datetime
 from zoneinfo import ZoneInfo
-from videohash import VideoHash
+from videohash2 import VideoHash
 
 IMAGE_EXTENSIONS = {'.JPG', '.jpeg', '.PNG', '.jpg', '.gif', '.png', '.JPEG'}
 VIDEO_EXTENSIONS = {'.MP4', '.avi', '.mp4', '.3gp'}
-OTHER_EXTENSIONS = {'.json', '.MP', '.html'}
+OTHER_EXTENSIONS = {'.json', '.MP', '.html', '.txt'}
 ALL_EXPECTED_EXTENSIONS = IMAGE_EXTENSIONS.union(VIDEO_EXTENSIONS).union(OTHER_EXTENSIONS)
 
 class MediaType(enum.Enum):

@@ -10,7 +10,7 @@ dependencies = [
     { name = "imagehash" },
     { name = "piexif" },
     { name = "pillow" },
-    { name = "videohash" },
+    { name = "videohash2" },
 ]
 
 [package.metadata]
@@ -18,19 +18,19 @@ requires-dist = [
     { name = "imagehash", specifier = ">=4.3.2" },
     { name = "piexif", specifier = ">=1.1.3" },
     { name = "pillow", specifier = ">=11.2.1" },
-    { name = "videohash", specifier = ">=3.0.1" },
+    { name = "videohash2", specifier = ">=3.2.2" },
 ]
 
 [[package]]
-name = "imagedominantcolor"
-version = "1.0.1"
+name = "imagedominantcolour"
+version = "1.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pillow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/3e/504aa527e9a3eb287a5d0d382fcff9b2580af91b45a9fe21dff95be96651/imagedominantcolor-1.0.1.tar.gz", hash = "sha256:f37790dfb52402a636231e8e0a1148f241990d4ff75f6b6e7f838885ffef7079", size = 5375, upload-time = "2022-01-31T18:38:05.098Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a6/84/dad94c0f8a1096a0192fd3c586029a833cf45893f5d791ed9e7541e95309/imagedominantcolour-1.0.2.tar.gz", hash = "sha256:f62c255a7143bd76070f9bc8492c3339fb65e0b4749059ef38edd8c2660e9028", size = 6503, upload-time = "2024-07-02T20:43:13.132Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8c/cf/92931dbe2151fc92db9827dd12da43fc97e6579e3658e847f10e2f5bce67/imagedominantcolor-1.0.1-py3-none-any.whl", hash = "sha256:d890d61f78637f718f5eb6afbd60919317b889c45c5c4133d6bf8e670b18ff6c", size = 5925, upload-time = "2022-01-31T18:38:03.56Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/c7/b50e59547254f4196ca6bd74e234dc56551394232f08a261435cb45076ce/imagedominantcolour-1.0.2-py3-none-any.whl", hash = "sha256:4c74c7fd8e88d6efc83feb9b431d565c62d4ac39b9d139a2d792f5cf2dca752b", size = 6016, upload-time = "2024-07-02T20:43:11.68Z" },
 ]
 
 [[package]]
@@ -210,25 +210,25 @@ wheels = [
 ]
 
 [[package]]
-name = "videohash"
-version = "3.0.1"
+name = "videohash2"
+version = "3.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "imagedominantcolor" },
+    { name = "imagedominantcolour" },
     { name = "imagehash" },
     { name = "pillow" },
     { name = "yt-dlp" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e8/97/aa964ed2a1a626201a4bff2a3cfa2d665c535894df3fda34c095d399297f/videohash-3.0.1.tar.gz", hash = "sha256:64ba3876804c584a4ae22c70d4708eea08e559c2ea9ce8a7926a2894b4f38c2f", size = 24321, upload-time = "2022-05-29T07:38:02.482Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/d3/472dfee3e0397ad5b9ab4e54dfab01ca89bdd32ff4f99fd9a1ea68b68e3c/videohash2-3.2.2.tar.gz", hash = "sha256:f7f4219cab9b570c6b8f54d30b85fc58901fae9e989d46a5bdf6670930d739c6", size = 24820, upload-time = "2024-07-14T22:21:31.831Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/e5/3fa06f6fc3c7b31cccaa2222c12d459332d2e419cebf238c31bd07cb3e60/videohash-3.0.1-py3-none-any.whl", hash = "sha256:9a230d9cdef4d5b677c7377ddf477662b03feefd52ff675457e0aef3e19ba4d6", size = 23743, upload-time = "2022-05-29T07:38:00.748Z" },
+    { url = "https://files.pythonhosted.org/packages/88/d5/716d977f0474293925f9937d1b2b58c722ea114ecdf4d2b057286db6414e/videohash2-3.2.2-py3-none-any.whl", hash = "sha256:650fa6049d9ac197be724c14f40a8b2e061fc95aeeb41dc7cc5d4433237eee0f", size = 24932, upload-time = "2024-07-14T22:21:28.777Z" },
 ]
 
 [[package]]
 name = "yt-dlp"
-version = "2025.6.25"
+version = "2025.8.20"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/88/77/5e86a5345fe1cf5bad022a1b7323c9934c6a867e886fdc0cae44de8a0589/yt_dlp-2025.6.25.tar.gz", hash = "sha256:242b648e1a18ab04bdd4cc175a317fe8ec3ad7d0175eee9f981912624b3d6c8b", size = 3036249, upload-time = "2025-06-26T00:04:58.395Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c8/af/d3c81af35ae2aef148d0ff78f001650ce5a7ca73fbd3b271eb9aab4c56ee/yt_dlp-2025.8.20.tar.gz", hash = "sha256:da873bcf424177ab5c3b701fa94ea4cdac17bf3aec5ef37b91f530c90def7bcf", size = 3037484, upload-time = "2025-08-20T02:58:49.443Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/fc/cb3be70e9dd354d6f6ecb2200011a1d05a3a9c219e1adacfd5de77440d79/yt_dlp-2025.6.25-py3-none-any.whl", hash = "sha256:1eb31c9a47d56c7433be23a6ae084c640bd4e14961ad43076927ef05280871ea", size = 3282762, upload-time = "2025-06-26T00:04:56.026Z" },
+    { url = "https://files.pythonhosted.org/packages/33/e8/ebd888100684c10799897296e3061c19ba5559b641f8da218bf48229a815/yt_dlp-2025.8.20-py3-none-any.whl", hash = "sha256:073c97e2a3f9cd0fa6a76142c4ef46ca62b2575c37eaf80d8c3718fd6f3277eb", size = 3266841, upload-time = "2025-08-20T02:58:47.142Z" },
 ]
