@@ -7,6 +7,7 @@ import argparse
 from pathlib import Path
 import shutil
 from PIL import Image
+from ffmpeg import FFmpeg
 import imagehash
 import json
 import re
@@ -162,7 +163,45 @@ def generate_media_infos(media_folder: Path, media_info_file: Path, media_type: 
         json.dump(export_info, json_file, indent=4, ensure_ascii=False)
     logger.info(f"Export information saved to {media_info_file}")
 
-def find_missing_media(src_media_info: Path, dst_media_info: Path, output_file: Path):
+def _hash_check_image(file_name: str, src_hashes: dict[str, str], dst_hashes: dict[str, str]):
+    """Check the hash values of image files."""
+    mismatching_hashes = []
+    total_distance = 0
+    if src_hashes['average'] != dst_hashes['average']:
+        mismatching_hashes.append('average')
+        total_distance += _hamming_distance(src_hashes['average'], dst_hashes['average'])
+    if src_hashes['perceptual'] != dst_hashes['perceptual']:
+        mismatching_hashes.append('perceptual')
+        total_distance += _hamming_distance(src_hashes['perceptual'], dst_hashes['perceptual'])
+    if src_hashes['difference'] != dst_hashes['difference']:
+        mismatching_hashes.append('difference')
+        total_distance += _hamming_distance(src_hashes['difference'], dst_hashes['difference'])
+    if src_hashes['wavelet'] != dst_hashes['wavelet']:
+        mismatching_hashes.append('wavelet')
+        total_distance += _hamming_distance(src_hashes['wavelet'], dst_hashes['wavelet'])
+    if src_hashes['colorhash'] != dst_hashes['colorhash']:
+        mismatching_hashes.append('colorhash')
+        total_distance += _hamming_distance(src_hashes['colorhash'], dst_hashes['colorhash'])
+    
+    if mismatching_hashes and total_distance > 10:
+        logger.warning(f"Hash mismatch for {file_name}: {', '.join(mismatching_hashes)} hashes do not match and total distance is {total_distance}.")
+        for hash_type in mismatching_hashes:
+            logger.warning(f"Source {hash_type} hash: {src_hashes[hash_type]}, Destination {hash_type} hash: {dst_hashes[hash_type]}")
+    else:
+        logger.info(f"Media {file_name} found in both source and destination with matching hashes.")
+
+def _hash_check_video(file_name: str, src_hashes: dict[str, str], dst_hashes: dict[str, str]):
+    """Check the hash values of video files."""
+    total_distance = 0
+    if src_hashes['video_hash'] != dst_hashes['video_hash']:
+        total_distance = _hamming_distance(src_hashes['video_hash'], dst_hashes['video_hash'])
+    
+    if total_distance > 10:
+        logger.warning(f"Hash mismatch for video {file_name}: source hash {src_hashes['video_hash']} does not match destination hash {dst_hashes['video_hash']}.")
+    else:
+        logger.info(f"Video {file_name} found in both source and destination with matching hashes.")
+
+def find_missing_media(src_media_info: Path, dst_media_info: Path, output_file: Path, media_type: MediaType):
     """
     Find missing media files in the destination folder based on the source media info file.
     
@@ -170,9 +209,10 @@ def find_missing_media(src_media_info: Path, dst_media_info: Path, output_file: 
         src_media_info (Path): The path to the media info file containing source media information.
         dst_media_info (Path): The path to the media info file containing destination media information.
         output_file (Path): The path to the file that will contain the list of missing media.
+        media_type (MediaType): The type of media to process (image or video).
     Raises:
         FileNotFoundError: If the specified source or destination media info file does not exist or is not a file.
-        ValueError: If there are duplicate media names in the source data.
+        ValueError: If there are duplicate media names in the source data, or if the media type is unsupported.
     """
     
     if not src_media_info.is_file():
@@ -202,30 +242,12 @@ def find_missing_media(src_media_info: Path, dst_media_info: Path, output_file: 
             # Check if hashes match
             src_hashes = info['hashes']
             dst_hashes = dst_data[name]['hashes']
-            mismatching_hashes = []
-            total_distance = 0
-            if src_hashes['average'] != dst_hashes['average']:
-                mismatching_hashes.append('average')
-                total_distance += _hamming_distance(src_hashes['average'], dst_hashes['average'])
-            if src_hashes['perceptual'] != dst_hashes['perceptual']:
-                mismatching_hashes.append('perceptual')
-                total_distance += _hamming_distance(src_hashes['perceptual'], dst_hashes['perceptual'])
-            if src_hashes['difference'] != dst_hashes['difference']:
-                mismatching_hashes.append('difference')
-                total_distance += _hamming_distance(src_hashes['difference'], dst_hashes['difference'])
-            if src_hashes['wavelet'] != dst_hashes['wavelet']:
-                mismatching_hashes.append('wavelet')
-                total_distance += _hamming_distance(src_hashes['wavelet'], dst_hashes['wavelet'])
-            if src_hashes['colorhash'] != dst_hashes['colorhash']:
-                mismatching_hashes.append('colorhash')
-                total_distance += _hamming_distance(src_hashes['colorhash'], dst_hashes['colorhash'])
-            
-            if mismatching_hashes and total_distance > 10:
-                logger.warning(f"Hash mismatch for {name}: {', '.join(mismatching_hashes)} hashes do not match and total distance is {total_distance}.")
-                for hash_type in mismatching_hashes:
-                    logger.warning(f"Source {hash_type} hash: {src_hashes[hash_type]}, Destination {hash_type} hash: {dst_hashes[hash_type]}")
+            if media_type == MediaType.IMAGE:
+                _hash_check_image(name, src_hashes, dst_hashes)
+            elif media_type == MediaType.VIDEO:
+                _hash_check_video(name, src_hashes, dst_hashes)
             else:
-                logger.info(f"Media {name} found in both source and destination with matching hashes.")
+                raise ValueError(f"Unsupported media type: {media_type}. Supported types are: {list(MediaType)}")
                 
     with output_file.open(mode="w", encoding="utf-8") as media_info_file_json:
         json.dump(missing_media, media_info_file_json, indent=4, ensure_ascii=False)
@@ -272,7 +294,7 @@ def _check_geodata(supplemental_metadata: dict) -> None:
     
     if latitude != longitude != altitude != latitude_span != longitude_span != 0.0:
         #TODO: if you find geodata think about putting it in the image metadata
-        raise ValueError(f"Geodata for {file_name} is available: Latitude: {latitude}, Longitude: {longitude}, Altitude: {altitude}, "
+        logger.warning(f"Geodata for {file_name} is available but not copied in metadata: Latitude: {latitude}, Longitude: {longitude}, Altitude: {altitude}, "
                     f"Latitude Span: {latitude_span}, Longitude Span: {longitude_span}.")
 
 def _get_datetime_from_google_metadata(supplemental_metadata: dict) -> datetime.datetime:
@@ -320,9 +342,93 @@ def _set_img_datetime(img_path: Path, datetime_taken: datetime.datetime):
         # Save image with updated metadata
         img.save(img_path, format=img.format, exif=exif_bytes)
         logger.info(f"Updated shooting date for: {img_path} to {new_date_str}")
-    
 
-def copy_and_set_google_metadata(media_info_file: Path, output: Path):
+def _set_img_metadata(media_name: str, media_data: dict[str,str], copied_media_path: Path):
+    if not _check_img_datetime_exists(copied_media_path):
+        metadata_file = _get_google_metadata_file(Path(media_data['path']))
+        
+        if not metadata_file:
+            logger.warning(f"Supplemental metadata file does not exist for {media_name}.")
+            return
+        with metadata_file.open(mode='r', encoding='utf-8') as meta_file:
+            supplemental_metadata = json.load(meta_file)
+        # check geodata
+        _check_geodata(supplemental_metadata)
+        datetime_taken = _get_datetime_from_google_metadata(supplemental_metadata)
+        # set datetime metadata to the copied image
+        _set_img_datetime(copied_media_path, datetime_taken)
+
+def _check_video_datetime_exists(copied_media_path: Path) -> bool:
+    """
+    Check if the video has date and time metadata.
+    """
+    ffprobe = FFmpeg(executable="ffprobe").input(
+        str(copied_media_path), print_format="json", show_streams=None
+    )
+
+    media = json.loads(ffprobe.execute())
+    if not media or "streams" not in media:
+        raise ValueError(f"No media info found for {copied_media_path.name} this should not happen")
+    
+    creation_time = None
+    for stream in media["streams"]:
+        if "tags" in stream and "creation_time" in stream["tags"]:
+            creation_time = stream["tags"]["creation_time"]
+            break
+    if not creation_time:
+        logger.info(f"No creation_time found in metadata for video {copied_media_path}.")
+        return False
+    return True
+
+def _set_video_datetime(copied_media_path: Path, datetime_taken: datetime.datetime):
+    
+    if copied_media_path.suffix.lower() == '.avi':
+        logger.warning(f"Skipping setting metadata for {copied_media_path} AVI file not supported")
+        return
+
+    iso_time_str = datetime_taken.isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
+    
+    ffprobe = FFmpeg(executable="ffprobe").input(
+        str(copied_media_path), print_format="json", show_streams=None
+    )
+    media = json.loads(ffprobe.execute())
+    for stream in media["streams"]:
+        stream["tags"]["creation_time"] = iso_time_str
+    # write the new metadata to a copy of the file
+    copy_file = copied_media_path.with_suffix(".copy" + copied_media_path.suffix)
+    ffmpeg = (
+        FFmpeg(executable="ffmpeg")
+        .input(str(copied_media_path))
+        .output(
+            str(copy_file),
+            codec="copy",
+            map="0",
+            metadata=f"creation_time={iso_time_str}",
+            y=None,  # overwrite the output file if it exists
+        )
+    )
+    ffmpeg.execute()
+    # remove the original file and rename the new one as the original
+    copy_file.replace(copied_media_path)
+    # print the new creation time
+    logger.info(f"Updated creation time to {iso_time_str} for {copied_media_path.name}")
+
+def _set_video_metadata(media_name, media_data, copied_media_path):
+    if not _check_video_datetime_exists(copied_media_path):
+        metadata_file = _get_google_metadata_file(Path(media_data['path']))
+
+        if not metadata_file:
+            logger.warning(f"Supplemental metadata file does not exist for {media_name}.")
+            return
+        with metadata_file.open(mode='r', encoding='utf-8') as meta_file:
+            supplemental_metadata = json.load(meta_file)
+        datetime_taken = _get_datetime_from_google_metadata(supplemental_metadata)
+        # set datetime metadata to the copied video
+        _set_video_datetime(copied_media_path, datetime_taken)
+
+def copy_and_set_google_metadata(media_info_file: Path, output: Path, media_type: MediaType):
     """
     Check metadata of the media files listed in the provided JSON file.
     
@@ -341,19 +447,12 @@ def copy_and_set_google_metadata(media_info_file: Path, output: Path):
             # copy image to output folder preserving metadata
             copied_media_path: Path = output.joinpath(media_name)
             shutil.copy2(Path(media_data['path']), copied_media_path)
-            if not _check_img_datetime_exists(copied_media_path):                
-                metadata_file = _get_google_metadata_file(Path(media_data['path']))
-                
-                if not metadata_file:
-                    logger.warning(f"Supplemental metadata file does not exist for {media_name}.")
-                    continue
-                with metadata_file.open(mode='r', encoding='utf-8') as meta_file:
-                    supplemental_metadata = json.load(meta_file)
-                # check geodata
-                _check_geodata(supplemental_metadata)
-                datetime_taken = _get_datetime_from_google_metadata(supplemental_metadata)
-                # set datetime metadata to the copied image
-                _set_img_datetime(copied_media_path, datetime_taken)
+            if media_type == MediaType.IMAGE:
+                _set_img_metadata(media_name, media_data, copied_media_path)
+            elif media_type == MediaType.VIDEO:
+                _set_video_metadata(media_name, media_data, copied_media_path)
+            else:
+                raise ValueError(f"Unsupported media type: {media_type}. Supported types are: {list(MediaType)}")
 
 def check_img_missing_datetime(media_path: Path):
     """
@@ -431,9 +530,9 @@ def main():
         generate_media_infos(args.generate_media_infos[0], args.generate_media_infos[1], MediaType(args.type))
     elif args.find_missing:
         # Find missing media files and save the results to the specified media_info_file file
-        find_missing_media(args.find_missing[0], args.find_missing[1], args.find_missing[2])
+        find_missing_media(args.find_missing[0], args.find_missing[1], args.find_missing[2], MediaType(args.type))
     elif args.copy_with_metadata:
-        copy_and_set_google_metadata(args.copy_with_metadata[0], args.copy_with_metadata[1])
+        copy_and_set_google_metadata(args.copy_with_metadata[0], args.copy_with_metadata[1], MediaType(args.type))
     elif args.check_missing_datetime:
         # Check if the media files have missing datetime metadata
         check_img_missing_datetime(args.check_missing_datetime)
