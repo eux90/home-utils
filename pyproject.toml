@@ -1,7 +1,7 @@
 [project]
 name = "home-utils"
 version = "0.1.0"
-description = "Add your description here"
+description = "My utilities to parse images and add metadata to them"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
